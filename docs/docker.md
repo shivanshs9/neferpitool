@@ -75,19 +75,11 @@ Trace span names match `event.name` (e.g. `neferpitool.dns.changed`, `neferpitoo
 
 Event attributes use `monitored.domain` for the FQDN under watch (not `host.name`, which SigNoz maps to the collector/node).
 
-### SigNoz alerting (recommended)
+### SigNoz alerting
 
-| Alert | Channel | Condition | Notes |
-|-------|---------|-----------|-------|
-| DNS record changed | **Logs** (preferred) or Traces | `event.name` = `neferpitool.dns.changed` | Primary security signal; filter `monitored.domain`, `zone`, `field` |
-| New asset subdomain | Logs / Traces | `event.name` = `neferpitool.host.discovered` | New wordlist/CT host added to monitoring |
-| Typo activated | Logs / Traces | `event.name` = `neferpitool.typo.activated` | Typosquat became resolvable |
-| Monitor unhealthy | Traces (optional) | no `neferpitool.monitor.cycle` span for > N minutes | Cycle span is heartbeat-only, not an error |
-| Typo discovered storm | Logs | rate(`neferpitool.typo.discovered`) high | Deferred typo generation; tune threshold |
+See **[signoz-alerting.md](./signoz-alerting.md)** for the full checklist, every `event.name`, log/trace query examples, WHOIS vs DNS nameserver notes, and test procedures.
 
-**Practical setup:** create a **Log-based alert** on JSON/log body `event.name = neferpitool.dns.changed` (and optionally `zone = avantisfinance.net`). Use **Trace-based alerts** only if log ingestion is weak; filter `name = neferpitool.dns.changed` and `monitored.domain` exists.
-
-Do **not** alert on `neferpitool.monitor.cycle` unless you want a missing-cycle heartbeat. Do **not** alert on every `neferpitool.typo.discovered` unless you want noise after first deploy.
+Key events: `neferpitool.dns.changed`, `neferpitool.whois.changed`, `neferpitool.typo.activated`, `neferpitool.host.discovered`, `neferpitool.monitor.cycle` (heartbeat).
 
 ### SigNoz: logs vs traces
 

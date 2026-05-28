@@ -44,8 +44,40 @@ func TestMakeChange_WhoisOnlyOnApex(t *testing.T) {
 
 	subTdcs := MakeChange(subOld, subNew)
 	for _, c := range subTdcs {
-		if c.Field == NAME_REGISTRANT || c.Field == ORGANIZAIOTN || c.Field == EXPIRATION_DATE {
+		if IsWhoisField(c.Field) {
 			t.Errorf("subdomain should not emit WHOIS change, got field %q", c.Field)
+		}
+	}
+}
+
+func TestMakeChange_WHOISNameServers(t *testing.T) {
+	apexOld := domains.NewHost("example.com", "example.com", "", constants.SourceApex)
+	apexNew := apexOld
+	apexOld.Whois.Parsed.Registrar.NameServers = "ns1.example.net, ns2.example.net"
+	apexNew.Whois.Parsed.Registrar.NameServers = "ns2.example.net, ns3.example.net"
+
+	tdcs := MakeChange(apexOld, apexNew)
+	found := false
+	for _, c := range tdcs {
+		if c.Field == WHOIS_NAME_SERVERS {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected WHOIS nameserver change, got %+v", tdcs)
+	}
+}
+
+func TestMakeChange_WHOISNameServers_orderIgnored(t *testing.T) {
+	apexOld := domains.NewHost("example.com", "example.com", "", constants.SourceApex)
+	apexNew := apexOld
+	apexOld.Whois.Parsed.Registrar.NameServers = "ns1.example.net, ns2.example.net"
+	apexNew.Whois.Parsed.Registrar.NameServers = "ns2.example.net, ns1.example.net"
+
+	tdcs := MakeChange(apexOld, apexNew)
+	for _, c := range tdcs {
+		if c.Field == WHOIS_NAME_SERVERS {
+			t.Fatalf("order-only NS change should not alert, got %+v", c)
 		}
 	}
 }

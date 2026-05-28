@@ -16,11 +16,12 @@ import (
 func (w Whois) IsLike(w2 Whois) bool {
 	registrantName := w.Parsed.Registrant.RegistrantName == w2.Parsed.Registrant.RegistrantName
 	organization := w.Parsed.Registrant.Organization == w2.Parsed.Registrant.Organization
+	nameServers := NormalizeNameServers(w.Parsed.Registrar.NameServers) == NormalizeNameServers(w2.Parsed.Registrar.NameServers)
 	creationDate := w.Parsed.Registrar.CreatedDate == w2.Parsed.Registrar.CreatedDate
 	updatedDate := w.Parsed.Registrar.UpdatedDate == w2.Parsed.Registrar.UpdatedDate
 	expirationDate := w.Parsed.Registrar.ExpirationDate == w2.Parsed.Registrar.ExpirationDate
 
-	if registrantName && organization && creationDate && updatedDate && expirationDate {
+	if registrantName && organization && nameServers && creationDate && updatedDate && expirationDate {
 		return true
 	} else {
 		return false

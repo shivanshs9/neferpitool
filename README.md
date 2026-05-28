@@ -93,7 +93,7 @@ Menage one specific typodomain with the interactive prompt
     "MONITOR_ASSET_DNS_CHANGES": DNS/WHOIS change checks for apex + subdomains (not typos)
     "MONITOR_TYPO_WATCHLIST": Lighter typo checks (registration status; optional full DNS via TYPO_FULL_DNS_CHANGE_CHECK)
     "TYPO_FULL_DNS_CHANGE_CHECK": When false, typos only alert on status/registration changes (faster)
-    "EVENTS_ENABLED": Emit JSON event lines for SigNoz (neferpitool.typo.discovered, neferpitool.typo.activated, ...)
+    "EVENTS_ENABLED": Emit JSON event lines for SigNoz (neferpitool.dns.changed, neferpitool.whois.changed, ...)
     "LOG_PLAIN": Force plain logs (no spinner/progress bars); auto-detected when stdout is not a TTY
     "TYPOSALGHORITM": List of typosquatting alghoritms
     "EXPIRATIONTIME": Number of days remaining until the domain expires for which to be notified by email
@@ -155,7 +155,7 @@ docker build -t neferpitool:latest .
 docker run --rm -v neferpitool-data:/app/config/database neferpitool:latest -bg example.com
 ```
 
-See [docs/docker.md](docs/docker.md) for configuration, **OTEL / SigNoz** environment variables, and Kubernetes notes.
+See [docs/docker.md](docs/docker.md) for configuration, **OTEL / SigNoz** environment variables, and Kubernetes notes. Alert setup: [docs/signoz-alerting.md](docs/signoz-alerting.md).
 
 ## DNS for testing
 

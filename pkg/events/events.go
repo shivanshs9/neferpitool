@@ -14,6 +14,7 @@ const (
 	TypoDiscovered = "neferpitool.typo.discovered"
 	TypoActivated  = "neferpitool.typo.activated"
 	DNSChanged     = "neferpitool.dns.changed"
+	WHOISChanged   = "neferpitool.whois.changed"
 	HostDiscovered = "neferpitool.host.discovered"
 
 	// AttrMonitoredDomain is the DNS name under watch (not OTEL resource host.name).
@@ -80,5 +81,17 @@ func EmitHostDiscovered(zone, host, source, status string) {
 		AttrMonitoredDomain: host,
 		"source":            source,
 		"status":            status,
+	})
+}
+
+// EmitWHOISChanged records an apex WHOIS field change (registrar data, not public DNS).
+func EmitWHOISChanged(zone, domain, field, before, after string) {
+	Emit(WHOISChanged, map[string]string{
+		"zone":              zone,
+		AttrMonitoredDomain: domain,
+		"field":             field,
+		"before":            before,
+		"after":             after,
+		"change.type":       "whois",
 	})
 }

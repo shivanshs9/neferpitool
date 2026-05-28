@@ -9,6 +9,7 @@ import (
 	"github.com/moorada/neferpitool/pkg/dns"
 	"github.com/moorada/neferpitool/pkg/domains"
 	"github.com/moorada/neferpitool/pkg/log"
+	"github.com/moorada/neferpitool/pkg/whois"
 )
 
 type Change struct {
@@ -25,8 +26,9 @@ const (
 	ORGANIZAIOTN    = "Organization"
 	CREATION_DATE   = "Creation Date"
 	UPDATED_DATE    = "Updated Date"
-	EXPIRATION_DATE = "Expiration Date"
-	STATUS          = "Status"
+	EXPIRATION_DATE    = "Expiration Date"
+	WHOIS_NAME_SERVERS = "WHOIS Name Servers"
+	STATUS             = "Status"
 
 	DNS_SOA   = "DNS SOA"
 	DNS_NS    = "DNS NS"
@@ -82,6 +84,7 @@ func MakeChange(tdOld domains.TypoDomain, tdNew domains.TypoDomain) (tdcs Change
 
 	name := w1.Parsed.Registrant.RegistrantName == w2.Parsed.Registrant.RegistrantName
 	organization := w1.Parsed.Registrant.Organization == w2.Parsed.Registrant.Organization
+	nameServers := whois.NormalizeNameServers(w1.Parsed.Registrar.NameServers) == whois.NormalizeNameServers(w2.Parsed.Registrar.NameServers)
 	expirationDate := w1.Parsed.Registrar.ExpirationDate == w2.Parsed.Registrar.ExpirationDate
 
 	if status {
@@ -91,15 +94,28 @@ func MakeChange(tdOld domains.TypoDomain, tdNew domains.TypoDomain) (tdcs Change
 		if !organization {
 			tdcs = append(tdcs, Change{tdOld.Name, ORGANIZAIOTN, w1.Parsed.Registrant.Organization, w2.Parsed.Registrant.Organization})
 		}
+		if !nameServers {
+			tdcs = append(tdcs, Change{tdOld.Name, WHOIS_NAME_SERVERS, w1.Parsed.Registrar.NameServers, w2.Parsed.Registrar.NameServers})
+		}
 		if !expirationDate {
 			tdcs = append(tdcs, Change{tdOld.Name, EXPIRATION_DATE, w1.Parsed.Registrar.ExpirationDate, w2.Parsed.Registrar.ExpirationDate})
 		}
 	}
 
-	if !name || !organization || !expirationDate {
+	if !name || !organization || !nameServers || !expirationDate {
 		log.Debug("%s is changed about whois (apex)", tdNew.Name)
 	}
 	return tdcs
+}
+
+// IsWhoisField reports whether a change field is from apex WHOIS (not DNS or status).
+func IsWhoisField(field string) bool {
+	switch field {
+	case NAME_REGISTRANT, ORGANIZAIOTN, CREATION_DATE, UPDATED_DATE, EXPIRATION_DATE, WHOIS_NAME_SERVERS:
+		return true
+	default:
+		return false
+	}
 }
 
 func makeDNSChanges(host string, oldR, newR dns.Dns) ChangeList {

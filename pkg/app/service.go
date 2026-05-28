@@ -244,14 +244,17 @@ func (s *Service) iterateCheckGetChangesInternal(tds domains.TypoList, apex stri
 	}
 
 	for _, c := range changesReliable {
-		if len(c.Field) >= 4 && c.Field[:4] == "DNS " {
+		switch {
+		case changes.IsWhoisField(c.Field):
+			events.EmitWHOISChanged(apex, c.TypoDomain, c.Field, c.Before, c.After)
+		case len(c.Field) >= 4 && c.Field[:4] == "DNS ":
 			events.Emit(events.DNSChanged, map[string]string{
-				"zone":                    apex,
+				"zone":                     apex,
 				events.AttrMonitoredDomain: c.TypoDomain,
-				"field":                   c.Field,
-				"before":                  c.Before,
-				"after":                   c.After,
-				"change.type":             "dns",
+				"field":                    c.Field,
+				"before":                   c.Before,
+				"after":                    c.After,
+				"change.type":              "dns",
 			})
 		}
 	}
