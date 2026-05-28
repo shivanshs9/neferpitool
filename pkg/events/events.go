@@ -15,6 +15,9 @@ const (
 	TypoActivated  = "neferpitool.typo.activated"
 	DNSChanged     = "neferpitool.dns.changed"
 	HostDiscovered = "neferpitool.host.discovered"
+
+	// AttrMonitoredDomain is the DNS name under watch (not OTEL resource host.name).
+	AttrMonitoredDomain = "monitored.domain"
 )
 
 // Emit writes a structured JSON log line and an OTEL trace span (when OTLP is configured).
@@ -53,29 +56,29 @@ func EmitContext(ctx context.Context, name string, attrs map[string]string) {
 
 func EmitTypoDiscovered(zone, host, algorithm, status string) {
 	Emit(TypoDiscovered, map[string]string{
-		"zone":      zone,
-		"host.name": host,
-		"algorithm": algorithm,
-		"status":    status,
-		"source":    "typo",
+		"zone":                zone,
+		AttrMonitoredDomain:   host,
+		"algorithm":           algorithm,
+		"status":              status,
+		"source":              "typo",
 	})
 }
 
 func EmitTypoActivated(zone, host, fromStatus, toStatus string) {
 	Emit(TypoActivated, map[string]string{
-		"zone":        zone,
-		"host.name":   host,
-		"status.from": fromStatus,
-		"status.to":   toStatus,
-		"source":      "typo",
+		"zone":              zone,
+		AttrMonitoredDomain: host,
+		"status.from":       fromStatus,
+		"status.to":         toStatus,
+		"source":            "typo",
 	})
 }
 
 func EmitHostDiscovered(zone, host, source, status string) {
 	Emit(HostDiscovered, map[string]string{
-		"zone":      zone,
-		"host.name": host,
-		"source":    source,
-		"status":    status,
+		"zone":              zone,
+		AttrMonitoredDomain: host,
+		"source":            source,
+		"status":            status,
 	})
 }

@@ -2,6 +2,7 @@ package dns
 
 import (
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 
@@ -16,6 +17,12 @@ func NormalizeRRString(s string) string {
 	}
 	rr, err := mdns.NewRR(s)
 	if err != nil {
+		if ip := net.ParseIP(s); ip != nil {
+			if ip.To4() != nil {
+				return "A:" + ip.String()
+			}
+			return "AAAA:" + ip.String()
+		}
 		return collapseWS(s)
 	}
 	return canonicalRdata(rr)
@@ -45,25 +52,61 @@ func collapseWS(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// RecordStringByType returns the RR string for the requested type, searching all Dns
-// slots (handles legacy rows where the wrong slot stored the answer).
-func RecordStringByType(d Dns, recordType uint16) string {
-	for _, s := range []string{d.SOA, d.NS, d.CNAME, d.A, d.AAAA, d.MX} {
-		if s == "" {
+// RecordsJoinedByType returns all RR strings of the given type (newline-separated),
+// searching every slot so legacy misplaced answers still compare correctly.
+func RecordsJoinedByType(d Dns, recordType uint16) string {
+	var matches []string
+	seen := map[string]struct{}{}
+	add := func(line string) {
+		if line == "" {
+			return
+		}
+		if _, ok := seen[line]; ok {
+			return
+		}
+		seen[line] = struct{}{}
+		matches = append(matches, line)
+	}
+	for _, slot := range []struct {
+		val      string
+		allowRaw bool
+	}{
+		{d.SOA, false},
+		{d.NS, false},
+		{d.CNAME, false},
+		{d.A, true},
+		{d.AAAA, true},
+		{d.MX, false},
+	} {
+		if slot.val == "" {
 			continue
 		}
-		for _, line := range strings.Split(s, "\n") {
+		for _, line := range strings.Split(slot.val, "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue
 			}
 			rr, err := mdns.NewRR(line)
 			if err == nil && rr.Header().Rrtype == recordType {
-				return line
+				add(line)
+				continue
+			}
+			if err != nil && slot.allowRaw {
+				ip := net.ParseIP(line)
+				if ip == nil {
+					continue
+				}
+				if recordType == mdns.TypeA && ip.To4() != nil {
+					add(line)
+				}
+				if recordType == mdns.TypeAAAA && ip.To4() == nil {
+					add(line)
+				}
 			}
 		}
 	}
-	return ""
+	sort.Strings(matches)
+	return strings.Join(matches, "\n")
 }
 
 // NormalizeRecordSet compares one or more RR strings (newline-separated), ignoring TTL.

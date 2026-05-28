@@ -152,7 +152,7 @@ ACTIVE: if A, AAAA or MX records are present;
 
 ```bash
 docker build -t neferpitool:latest .
-docker run --rm -v neferpitool-config:/app/config neferpitool:latest -bg example.com
+docker run --rm -v neferpitool-data:/app/config/database neferpitool:latest -bg example.com
 ```
 
 See [docs/docker.md](docs/docker.md) for configuration, **OTEL / SigNoz** environment variables, and Kubernetes notes.

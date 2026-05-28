@@ -27,9 +27,18 @@ RUN apk add --no-cache ca-certificates sqlite-libs tzdata \
 WORKDIR /app
 
 COPY --from=builder /out/neferpitool /app/neferpitool
-COPY cmd/config/ /app/config/
 
-RUN sed -i 's|"PATHRESOLVER": "./config/resolv.conf"|"PATHRESOLVER": "/etc/resolv.conf"|' /app/config/config.json \
+# Baked-in config (not replaced unless you mount over /app/config or individual files).
+COPY cmd/config/config.json /app/config/config.json
+COPY cmd/config/subdomains.txt /app/config/subdomains.txt
+COPY cmd/config/listTLD.json /app/config/listTLD.json
+COPY cmd/config/emailTemplates/ /app/config/emailTemplates/
+
+RUN sed -i \
+      -e 's|"PATHRESOLVER": "./config/resolv.conf"|"PATHRESOLVER": "/etc/resolv.conf"|' \
+      -e 's|"SUBDOMAIN_WORDLIST_PATH": "./config/subdomains.txt"|"SUBDOMAIN_WORDLIST_PATH": "/app/config/subdomains.txt"|' \
+      /app/config/config.json \
+    && mkdir -p /app/config/database \
     && chown -R neferpitool:neferpitool /app
 
 USER neferpitool
@@ -42,7 +51,8 @@ ENV LOG_PLAIN=true \
     OTEL_EXPORTER_OTLP_INSECURE=true \
     OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production
 
-VOLUME ["/app/config"]
+# SQLite only — config.json and subdomains.txt stay in the image layer.
+VOLUME ["/app/config/database"]
 
 ENTRYPOINT ["/app/neferpitool"]
 CMD ["-bg"]

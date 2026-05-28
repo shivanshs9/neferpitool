@@ -116,8 +116,8 @@ func makeDNSChanges(host string, oldR, newR dns.Dns) ChangeList {
 		{DNS_AAAA, mdns.TypeAAAA},
 		{DNS_MX, mdns.TypeMX},
 	} {
-		oldS := dns.RecordStringByType(oldR, p.typ)
-		newS := dns.RecordStringByType(newR, p.typ)
+		oldS := dns.RecordsJoinedByType(oldR, p.typ)
+		newS := dns.RecordsJoinedByType(newR, p.typ)
 		if dns.NormalizeRecordSet(oldS) == dns.NormalizeRecordSet(newS) {
 			continue
 		}

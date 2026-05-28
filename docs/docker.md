@@ -15,22 +15,26 @@ Register apex zones and start the monitor loop:
 ```bash
 docker run --rm -it \
   --name neferpitool \
-  -v neferpitool-config:/app/config \
+  -v neferpitool-data:/app/config/database \
   neferpitool:latest \
   -bg avantisfi.com avantisfinance.net
 ```
+
+`config.json` and `subdomains.txt` are **included in the image** at `/app/config/`. Mount only `/app/config/database` for persistent zone/typo state unless you intentionally override config.
 
 Zones passed after `-bg` are added to the database if missing, then monitoring runs for **all** zones in the DB.
 
 One-shot add (no background):
 
 ```bash
-docker run --rm -v neferpitool-config:/app/config neferpitool:latest avantisfi.com
+docker run --rm -v neferpitool-data:/app/config/database neferpitool:latest avantisfi.com
 ```
 
 ## Configuration
 
-Settings are loaded from `/app/config/config.json`, then **overridden** by environment variables when set.
+Settings are loaded from `/app/config/config.json` (baked into the image from `cmd/config/config.json`), then **overridden** by environment variables when set.
+
+Subdomain wordlist: `/app/config/subdomains.txt` (source: `cmd/config/subdomains.txt`, referenced by `SUBDOMAIN_WORDLIST_PATH` in config).
 
 | Environment variable | Description |
 |---------------------|-------------|
@@ -42,30 +46,60 @@ Settings are loaded from `/app/config/config.json`, then **overridden** by envir
 | `PATHRESOLVER` | DNS resolver file (default in image: `/etc/resolv.conf`) |
 | `MINUTESLEEPBACKGROUNDMONITORING` | Minutes between monitor cycles |
 
-Mount a custom config:
+Override config or wordlist (optional):
 
 ```bash
-docker run -v $(pwd)/my-config:/app/config neferpitool:latest -bg example.com
+docker run \
+  -v neferpitool-data:/app/config/database \
+  -v $(pwd)/my-config.json:/app/config/config.json:ro \
+  -v $(pwd)/my-subdomains.txt:/app/config/subdomains.txt:ro \
+  neferpitool:latest -bg example.com
 ```
+
+Avoid mounting an empty volume on `/app/config` — that hides the baked-in `config.json` and `subdomains.txt`.
 
 ## OpenTelemetry and SigNoz
 
-Neferpitool currently exports **structured events as JSON log lines** on stdout when `EVENTS_ENABLED=true`, for example:
+Neferpitool uses **two channels**:
+
+1. **Logs** — JSON lines on stdout when `EVENTS_ENABLED=true` (good for log-based alerts).
+2. **Traces** — OTLP HTTP spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (shows under **Services → Traces** in SigNoz).
+
+Example log event:
 
 ```json
-{"event.name":"neferpitool.typo.activated","zone":"example.com","host.name":"examp1e.com",...}
+{"event.name":"neferpitool.dns.changed","zone":"example.com","monitored.domain":"api.example.com",...}
 ```
 
-### SigNoz today (log pipeline)
+Trace span names match `event.name` (e.g. `neferpitool.dns.changed`, `neferpitool.monitor.cycle`).
 
-1. Run the container with `LOG_PLAIN=true` and `EVENTS_ENABLED=true` (defaults in the Dockerfile).
-2. Collect container stdout with your platform (Kubernetes → SigNoz log collector, Docker → OTLP log receiver).
-3. In SigNoz, query logs: `event.name = neferpitool.typo.activated` or `neferpitool.typo.discovered`.
-4. Create alerts on those patterns or on log-based metrics.
+Event attributes use `monitored.domain` for the FQDN under watch (not `host.name`, which SigNoz maps to the collector/node).
+
+### SigNoz alerting (recommended)
+
+| Alert | Channel | Condition | Notes |
+|-------|---------|-----------|-------|
+| DNS record changed | **Logs** (preferred) or Traces | `event.name` = `neferpitool.dns.changed` | Primary security signal; filter `monitored.domain`, `zone`, `field` |
+| New asset subdomain | Logs / Traces | `event.name` = `neferpitool.host.discovered` | New wordlist/CT host added to monitoring |
+| Typo activated | Logs / Traces | `event.name` = `neferpitool.typo.activated` | Typosquat became resolvable |
+| Monitor unhealthy | Traces (optional) | no `neferpitool.monitor.cycle` span for > N minutes | Cycle span is heartbeat-only, not an error |
+| Typo discovered storm | Logs | rate(`neferpitool.typo.discovered`) high | Deferred typo generation; tune threshold |
+
+**Practical setup:** create a **Log-based alert** on JSON/log body `event.name = neferpitool.dns.changed` (and optionally `zone = avantisfinance.net`). Use **Trace-based alerts** only if log ingestion is weak; filter `name = neferpitool.dns.changed` and `monitored.domain` exists.
+
+Do **not** alert on `neferpitool.monitor.cycle` unless you want a missing-cycle heartbeat. Do **not** alert on every `neferpitool.typo.discovered` unless you want noise after first deploy.
+
+### SigNoz: logs vs traces
+
+| Goal | What to configure |
+|------|-------------------|
+| Log queries / log alerts | `EVENTS_ENABLED=true`, `LOG_PLAIN=true`, ingest container stdout |
+| Service map & trace view | `OTEL_EXPORTER_OTLP_ENDPOINT` (HTTP port **4318** on node/host collector), `OTEL_EXPORTER_OTLP_INSECURE=true` if needed |
+| Service name in UI | `OTEL_SERVICE_NAME` or `service.name=...` inside `OTEL_RESOURCE_ATTRIBUTES` |
+
+JSON log lines alone do **not** create a new service in the Traces tab; you need OTLP export (or a log→trace pipeline).
 
 ### OTEL environment variables (Dockerfile `ENV`)
-
-The image sets standard [OTEL SDK environment variables](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/) so they are ready when native OTLP export is added, and so sidecars or the SigNoz collector can use the same conventions:
 
 | Variable | Default in image | Purpose |
 |----------|------------------|---------|
@@ -91,13 +125,7 @@ env:
     value: deferred
 ```
 
-When native OTLP log export is implemented, you may also set:
-
-- `OTEL_LOGS_EXPORTER=otlp`
-- `OTEL_TRACES_EXPORTER=otlp`
-- `OTEL_METRICS_EXPORTER=otlp`
-
-Until then, rely on stdout JSON events + log ingestion.
+On startup you should see `OTEL trace export enabled` in logs when the endpoint is reachable. Each DNS/typo event also creates a short-lived span with the same attributes as the JSON payload.
 
 ## Kubernetes (sketch)
 
@@ -119,9 +147,9 @@ spec:
                 name: neferpitool-config
           volumeMounts:
             - name: data
-              mountPath: /app/config
+              mountPath: /app/config/database
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: neferpitool-config
+            claimName: neferpitool-data
 ```
