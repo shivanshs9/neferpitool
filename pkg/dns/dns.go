@@ -3,9 +3,11 @@ package dns
 import (
 	"errors"
 	"net"
+	"sort"
+	"strings"
 	"time"
 
-	"github.com/miekg/dns"
+	mdns "github.com/miekg/dns"
 
 	"github.com/moorada/neferpitool/pkg/configuration"
 	"github.com/moorada/neferpitool/pkg/constants"
@@ -46,11 +48,11 @@ func CheckDNS(d string) (result int, info Dns, err error, duration time.Duration
 
 	errorsMap := make(map[string]error)
 
-	respSOA, soa, errSoa := iterateRequest(d, dns.TypeSOA, mas, tss)
+	respSOA, soa, errSoa := iterateRequest(d, mdns.TypeSOA, mas, tss)
 	info.SOA = soa
 	errorsMap["soa"] = errSoa
 
-	respNS, ns, errNS := iterateRequest(d, dns.TypeNS, mas, tss)
+	respNS, ns, errNS := iterateRequest(d, mdns.TypeNS, mas, tss)
 	info.NS = ns
 	errorsMap["ns"] = errNS
 
@@ -61,7 +63,7 @@ func CheckDNS(d string) (result int, info Dns, err error, duration time.Duration
 			result = constants.AVAILABLE
 		}
 	}
-	respCNAME, cname, errCNAME := iterateRequest(d, dns.TypeCNAME, mas, tss)
+	respCNAME, cname, errCNAME := iterateRequest(d, mdns.TypeCNAME, mas, tss)
 	info.CNAME = cname
 	errorsMap["cname"] = errCNAME
 	if errCNAME == nil {
@@ -70,13 +72,13 @@ func CheckDNS(d string) (result int, info Dns, err error, duration time.Duration
 		}
 	}
 
-	respA, a, errA := iterateRequest(d, dns.TypeA, mas, tss)
+	respA, a, errA := iterateRequest(d, mdns.TypeA, mas, tss)
 	info.A = a
 	errorsMap["a"] = errA
-	respAAAA, aaaa, errAAAA := iterateRequest(d, dns.TypeAAAA, mas, tss)
+	respAAAA, aaaa, errAAAA := iterateRequest(d, mdns.TypeAAAA, mas, tss)
 	info.AAAA = aaaa
 	errorsMap["aaaa"] = errAAAA
-	respMX, mx, errMX := iterateRequest(d, dns.TypeMX, mas, tss)
+	respMX, mx, errMX := iterateRequest(d, mdns.TypeMX, mas, tss)
 	info.MX = mx
 	errorsMap["mx"] = errMX
 
@@ -109,16 +111,16 @@ func iterateRequest(domain string, recordType uint16, maxAttempts int, timesleep
 
 func isThereRecord(d string, recordType uint16) (ok bool, recordValue string, err error) {
 	resolver := configuration.GetConf().PATHRESOLVER
-	config, err := dns.ClientConfigFromFile(resolver)
+	config, err := mdns.ClientConfigFromFile(resolver)
 	if err != nil {
-		config, err = dns.ClientConfigFromFile("/etc/resolv.conf")
+		config, err = mdns.ClientConfigFromFile("/etc/resolv.conf")
 		if err != nil {
 			log.Fatal("%s", err.Error())
 		}
 	}
-	c := new(dns.Client)
-	m := new(dns.Msg)
-	m.SetQuestion(dns.Fqdn(d), recordType)
+	c := new(mdns.Client)
+	m := new(mdns.Msg)
+	m.SetQuestion(mdns.Fqdn(d), recordType)
 	m.RecursionDesired = true
 	r, _, err := c.Exchange(m, net.JoinHostPort(config.Servers[0], config.Port))
 	if err != nil {
@@ -126,8 +128,19 @@ func isThereRecord(d string, recordType uint16) (ok bool, recordValue string, er
 		return false, "", err
 	} else {
 		if r.Answer != nil {
-			log.Debug("Answer RecordType: %v,  about %s ok ", recordType, d)
-			return true, r.Answer[0].String(), nil
+			var matches []string
+			for _, ans := range r.Answer {
+				if ans.Header().Rrtype == recordType {
+					matches = append(matches, ans.String())
+				}
+			}
+			if len(matches) > 0 {
+				sort.Strings(matches)
+				log.Debug("Answer RecordType: %v,  about %s ok (%d RR)", recordType, d, len(matches))
+				return true, strings.Join(matches, "\n"), nil
+			}
+			log.Debug("Answer RecordType: %v, no matching RR type about %s", recordType, d)
+			return false, "", nil
 		} else {
 			log.Debug("Answer RecordType: %v, empty about %s", recordType, d)
 			return false, "", nil

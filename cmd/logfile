@@ -1,0 +1,6 @@
+11:16:58 INFO Starting background monitoring (args: [avantisfi.com avantisfinance.net])
+11:16:58 INFO Zone avantisfi.com already registered
+11:16:58 INFO Zone avantisfinance.net already registered
+11:16:58 INFO Background monitoring 2 zone(s): avantisfi.com, avantisfinance.net
+11:16:58 INFO Monitoring cycle — zones: avantisfi.com (103 hosts); avantisfinance.net (154 hosts)
+11:17:02 INFO Wordlist discovery for avantisfi.com: 14 resolvable names

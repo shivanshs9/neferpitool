@@ -8,7 +8,7 @@ require (
 	github.com/cheggaaa/pb/v3 v3.1.7
 	github.com/cybint/urlinsane v0.0.0-20190901124134-dcf93ebe9a31
 	github.com/evilsocket/islazy v1.11.0
-	github.com/google/go-cmp v0.6.0
+	github.com/google/go-cmp v0.7.0
 	github.com/jinzhu/gorm v1.9.16
 	github.com/likexian/whois-parser-go v1.15.4
 	github.com/manifoldco/promptui v0.9.0
@@ -17,9 +17,28 @@ require (
 	github.com/moorada/log v0.0.0-20190925205337-ea8e98779d11
 	github.com/moorada/whois v0.0.0-20190925202157-27c8af21b8ad
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/sheerun/queue v1.0.1
 	github.com/tkanos/gonfig v0.0.0-20210106201359-53e13348de2f
+	go.opentelemetry.io/otel v1.35.0
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.35.0
+	go.opentelemetry.io/otel/sdk v1.35.0
 	golang.org/x/net v0.54.0
+)
+
+require (
+	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
+	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.1 // indirect
+	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.35.0 // indirect
+	go.opentelemetry.io/otel/metric v1.35.0 // indirect
+	go.opentelemetry.io/otel/trace v1.35.0 // indirect
+	go.opentelemetry.io/proto/otlp v1.5.0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250218202821-56aae31c358a // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250218202821-56aae31c358a // indirect
+	google.golang.org/grpc v1.71.0 // indirect
+	google.golang.org/protobuf v1.36.5 // indirect
 )
 
 require (
@@ -38,7 +57,7 @@ require (
 	github.com/likexian/gokit v0.25.16 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
-	github.com/mattn/go-runewidth v0.0.23 // indirect
+	github.com/mattn/go-runewidth v0.0.23
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
 	github.com/oschwald/geoip2-golang v1.13.0 // indirect
 	github.com/oschwald/maxminddb-golang v1.13.1 // indirect
@@ -47,10 +66,9 @@ require (
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
-	golang.org/x/term v0.43.0 // indirect
+	golang.org/x/term v0.43.0
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
-	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 

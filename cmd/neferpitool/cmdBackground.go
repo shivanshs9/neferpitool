@@ -3,12 +3,13 @@ package cmd
 import (
 	"time"
 
-	"github.com/briandowns/spinner"
 	"github.com/moorada/neferpitool/pkg/changes"
 	"github.com/moorada/neferpitool/pkg/configuration"
+	"github.com/moorada/neferpitool/pkg/constants"
 	"github.com/moorada/neferpitool/pkg/db"
 	"github.com/moorada/neferpitool/pkg/log"
 	"github.com/moorada/neferpitool/pkg/notification"
+	"github.com/moorada/neferpitool/pkg/telemetry"
 	"github.com/moorada/neferpitool/pkg/reliableChanges"
 	"github.com/robfig/cron/v3"
 )
@@ -20,14 +21,10 @@ func background() {
 	}
 	mds := db.GetMainDomainListFromDB()
 	if len(mds) > 0 {
+		logZonesInDB(mds)
 		for {
-			log.Info("Monotoring...")
 			backgroundWork()
-			s := spinner.New(spinner.CharSets[26], 200*time.Millisecond) // Build our new spinner
-			s.Prefix = "Sleeping "
-			s.Start()
-			time.Sleep(timeToSleepBackground)
-			s.Stop()
+			sleepBetweenCycles(timeToSleepBackground)
 		}
 	} else {
 		log.Error("No domains in the Database")
@@ -37,7 +34,38 @@ func background() {
 
 func backgroundWork() {
 	start := time.Now()
+	ctx, endCycle := telemetry.MonitorCycleSpan(telemetry.BackgroundContext())
+	defer endCycle()
+	_ = ctx
+
+	backgroundCycleHeader(db.GetMainDomainListFromDB())
+
+	conf := configuration.GetConf()
+	if conf.DISCOVERY_REFRESH {
+		mds := db.GetMainDomainListFromDB()
+		for _, d := range mds {
+			newHosts, errs, err := monitorService.RefreshSubdomains(d.Name)
+			if err != nil {
+				log.Error("Subdomain refresh for %s: %s", d.Name, err.Error())
+			}
+			if len(errs) > 0 {
+				log.Debug("Subdomain refresh scan errors for %s: %v", d.Name, len(errs))
+			}
+			if len(newHosts) > 0 {
+				log.Info("Discovered %d new hosts under %s", len(newHosts), d.Name)
+			}
+		}
+	}
+
 	checkChangesOfAll()
+
+	if conf.TypoMode() == constants.TypoModeDeferred {
+		log.Info("Processing deferred typo-domain generation for all registered zones...")
+		if errs := monitorService.ProcessDeferredTypos(nil); len(errs) > 0 {
+			log.Debug("Deferred typo scan finished with %v errors", len(errs))
+		}
+	}
+
 	if len(changesToSend) > 0 {
 		prepareAndSendEmail()
 	}

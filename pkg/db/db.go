@@ -92,9 +92,20 @@ func GetAllTypoDomainListFromDB() domains.TypoList {
 }
 
 func AddTypoListToDB(tds domains.TypoList) {
-	for _, td := range tds {
-		AddTypoDomainToDB(td)
+	if len(tds) == 0 {
+		return
 	}
+	tx := db.Begin()
+	for _, td := range tds {
+		if err := tx.Create(&td).Error; err != nil {
+			tx.Rollback()
+			for _, t := range tds {
+				AddTypoDomainToDB(t)
+			}
+			return
+		}
+	}
+	tx.Commit()
 }
 
 func AddReliableChangeListToDB(tds []reliableChanges.ReliableChange) {

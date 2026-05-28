@@ -3,8 +3,10 @@ package changes
 import (
 	"reflect"
 
+	mdns "github.com/miekg/dns"
 	"golang.org/x/net/idna"
 
+	"github.com/moorada/neferpitool/pkg/dns"
 	"github.com/moorada/neferpitool/pkg/domains"
 	"github.com/moorada/neferpitool/pkg/log"
 )
@@ -25,6 +27,13 @@ const (
 	UPDATED_DATE    = "Updated Date"
 	EXPIRATION_DATE = "Expiration Date"
 	STATUS          = "Status"
+
+	DNS_SOA   = "DNS SOA"
+	DNS_NS    = "DNS NS"
+	DNS_CNAME = "DNS CNAME"
+	DNS_A     = "DNS A"
+	DNS_AAAA  = "DNS AAAA"
+	DNS_MX    = "DNS MX"
 )
 
 /*Compare two changes and return true is their are equals*/
@@ -56,6 +65,18 @@ func MakeChangeList(tdsOld domains.TypoList, tdsNew domains.TypoList) (tdsOldCh 
 }
 
 func MakeChange(tdOld domains.TypoDomain, tdNew domains.TypoDomain) (tdcs ChangeList) {
+	tdcs = append(tdcs, makeDNSChanges(tdOld.Name, tdOld.Dns, tdNew.Dns)...)
+
+	status := tdOld.Status == tdNew.Status
+	if !status {
+		tdcs = append(tdcs, Change{tdOld.Name, STATUS, tdOld.StatusToString(), tdNew.StatusToString()})
+		log.Debug("%s is changed about status", tdNew.Name)
+	}
+
+	if !tdOld.IsApex() {
+		return tdcs
+	}
+
 	w1 := tdOld.GetWhois()
 	w2 := tdNew.GetWhois()
 
@@ -63,10 +84,7 @@ func MakeChange(tdOld domains.TypoDomain, tdNew domains.TypoDomain) (tdcs Change
 	organization := w1.Parsed.Registrant.Organization == w2.Parsed.Registrant.Organization
 	expirationDate := w1.Parsed.Registrar.ExpirationDate == w2.Parsed.Registrar.ExpirationDate
 
-	status := tdOld.Status == tdNew.Status
-	if !status {
-		tdcs = append(tdcs, Change{tdOld.Name, STATUS, tdOld.StatusToString(), tdNew.StatusToString()})
-	} else {
+	if status {
 		if !name {
 			tdcs = append(tdcs, Change{tdOld.Name, NAME_REGISTRANT, w1.Parsed.Registrant.RegistrantName, w2.Parsed.Registrant.RegistrantName})
 		}
@@ -78,14 +96,37 @@ func MakeChange(tdOld domains.TypoDomain, tdNew domains.TypoDomain) (tdcs Change
 		}
 	}
 
-	if !name || !organization || !expirationDate || !status {
-		if !status {
-			log.Debug("%s is changed about status", tdNew.Name)
-		} else {
-			log.Debug("%s is changed about whois", tdNew.Name)
-		}
+	if !name || !organization || !expirationDate {
+		log.Debug("%s is changed about whois (apex)", tdNew.Name)
 	}
-	return
+	return tdcs
+}
+
+func makeDNSChanges(host string, oldR, newR dns.Dns) ChangeList {
+	var tdcs ChangeList
+	type pair struct {
+		field string
+		typ   uint16
+	}
+	for _, p := range []pair{
+		{DNS_SOA, mdns.TypeSOA},
+		{DNS_NS, mdns.TypeNS},
+		{DNS_CNAME, mdns.TypeCNAME},
+		{DNS_A, mdns.TypeA},
+		{DNS_AAAA, mdns.TypeAAAA},
+		{DNS_MX, mdns.TypeMX},
+	} {
+		oldS := dns.RecordStringByType(oldR, p.typ)
+		newS := dns.RecordStringByType(newR, p.typ)
+		if dns.NormalizeRecordSet(oldS) == dns.NormalizeRecordSet(newS) {
+			continue
+		}
+		if oldS == "" && newS == "" {
+			continue
+		}
+		tdcs = append(tdcs, Change{host, p.field, oldS, newS})
+	}
+	return tdcs
 }
 
 func (tdcs ChangeList) FilterReliableWithPrev(tdcsPrev ChangeList, tdsPrev domains.TypoList, tds domains.TypoList) (tdsChecked domains.TypoList, tdcsChecked ChangeList) {
@@ -137,8 +178,8 @@ func (tdcs ChangeList) ToTables() (headersAvailability []string, datasStatus [][
 			nameUnicode = ch.TypoDomain
 		}
 
-		if ch.Field == "Status" {
-			datasStatus = append(datasStatus, []string{nameUnicode, ch.Before, ch.After})
+		if ch.Field == STATUS || len(ch.Field) >= 4 && ch.Field[:4] == "DNS " {
+			datasStatus = append(datasStatus, []string{nameUnicode, ch.Field, ch.Before, ch.After})
 		} else {
 			tdcsWhois = append(tdcsWhois, ch)
 		}

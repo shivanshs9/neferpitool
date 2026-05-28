@@ -4,10 +4,12 @@ import (
 	"github.com/cheggaaa/pb/v3"
 	"github.com/manifoldco/promptui"
 	"github.com/moorada/neferpitool/pkg/changes"
+	"github.com/moorada/neferpitool/pkg/configuration"
 	"github.com/moorada/neferpitool/pkg/console"
 	"github.com/moorada/neferpitool/pkg/db"
 	"github.com/moorada/neferpitool/pkg/domains"
 	"github.com/moorada/neferpitool/pkg/log"
+	"github.com/moorada/neferpitool/pkg/terminal"
 )
 
 func checkForChanges() {
@@ -36,7 +38,7 @@ func checkForChanges() {
 		checkChangesOfAll()
 	} else {
 		log.Info("Checking changes about %s", result)
-		checkChanges(db.GetTypoDomainListFromDB(result))
+		checkZoneChanges(db.GetTypoDomainListFromDB(result))
 	}
 }
 
@@ -51,33 +53,83 @@ func showTypoDomainsInExpiration() {
 }
 
 func checkChangesOfAll() {
+	conf := configuration.GetConf()
 	mds := db.GetMainDomainListFromDB()
 	for i, d := range mds {
-		log.Info("Checking changes about %s, %v di %v", d.Name, i+1, len(mds))
-		checkChanges(db.GetTypoDomainListFromDB(d.Name))
+		all := db.GetTypoDomainListFromDB(d.Name)
+		assets := all.FilterAssets()
+		typos := all.FilterTypos()
+
+		log.Info("Zone %s: monitoring pass (%d assets, %d typos), zone %d of %d",
+			d.Name, len(assets), len(typos), i+1, len(mds))
+
+		if conf.MONITOR_ASSET_DNS_CHANGES {
+			checkAssetChanges(assets)
+		}
+		if conf.MONITOR_TYPO_WATCHLIST && conf.TypoEnabled() {
+			checkTypoWatchlistChanges(typos)
+		}
 	}
 }
 
-func checkChanges(tds domains.TypoList) bool {
-
-	tdsChanged, changes := iterateCheckGetChanges(tds)
-
-	if changes != nil {
-		monitorService.SaveReliableChanges(changes)
-		db.AddTypoListToDB(tdsChanged)
-		console.PrintChanges(changes)
-		changesToSend = append(changesToSend, changes...)
-		return true
-	} else {
-		log.Info("%s", "no changes")
+func checkZoneChanges(all domains.TypoList) bool {
+	conf := configuration.GetConf()
+	changed := false
+	if conf.MONITOR_ASSET_DNS_CHANGES {
+		changed = checkAssetChanges(all.FilterAssets()) || changed
 	}
-	return false
+	if conf.MONITOR_TYPO_WATCHLIST && conf.TypoEnabled() {
+		changed = checkTypoWatchlistChanges(all.FilterTypos()) || changed
+	}
+	return changed
 }
 
-func iterateCheckGetChanges(tds domains.TypoList) (tdsReliable []domains.TypoDomain, changesReliable []changes.Change) {
-	errs := map[string]error{}
+func checkAssetChanges(assets domains.TypoList) bool {
+	if len(assets) == 0 {
+		return false
+	}
+	tdsChanged, chs, errs := iterateCheckAssetChanges(assets)
+	if len(errs) > 0 {
+		console.PrintTableErrs(errs)
+	}
+	return applyChanges(assets.Apex(), tdsChanged, chs, "asset")
+}
+
+func checkTypoWatchlistChanges(typos domains.TypoList) bool {
+	if len(typos) == 0 {
+		return false
+	}
+	tdsChanged, chs, errs := monitorService.CheckTypoWatchlist(typos, scanProgressFn())
+	if len(errs) > 0 {
+		console.PrintTableErrs(errs)
+	}
+	return applyChanges(typos.Apex(), tdsChanged, chs, "typo watchlist")
+}
+
+func applyChanges(apex string, tdsChanged domains.TypoList, chs changes.ChangeList, kind string) bool {
+	if len(chs) == 0 {
+		log.Info("Zone %s: no %s changes", apex, kind)
+		return false
+	}
+	monitorService.SaveReliableChanges(chs)
+	db.AddTypoListToDB(tdsChanged)
+	console.PrintChanges(chs)
+	changesToSend = append(changesToSend, chs...)
+	log.Info("Zone %s: %d %s change(s) detected", apex, len(chs), kind)
+	return true
+}
+
+func iterateCheckAssetChanges(tds domains.TypoList) (domains.TypoList, changes.ChangeList, map[string]error) {
+	tdsReliable, changesReliable, errs := monitorService.IterateCheckAssetChanges(tds, scanProgressFn())
+	return tdsReliable, changesReliable, errs
+}
+
+func scanProgressFn() func(done, total int) {
+	if !terminal.UseInteractiveUI(configuration.GetConf().LOG_PLAIN) {
+		return nil
+	}
 	var bar *pb.ProgressBar
-	progress := func(done, total int) {
+	return func(done, total int) {
 		if total == 0 {
 			return
 		}
@@ -92,12 +144,6 @@ func iterateCheckGetChanges(tds domains.TypoList) (tdsReliable []domains.TypoDom
 			}
 		}
 	}
-
-	tdsReliable, changesReliable, errs = monitorService.IterateCheckGetChanges(tds, progress)
-	if len(errs) > 0 {
-		console.PrintTableErrs(errs)
-	}
-	return tdsReliable, changesReliable
 }
 
 func getTypoDomainsInExpiration() domains.TypoList {

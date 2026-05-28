@@ -15,12 +15,13 @@ func TestEmailChanges(t *testing.T) {
 	if conf.EMAIL != "" && conf.PASSWORD != "" && len(conf.EMAILTONOTIFY) != 0 {
 
 		var chs changes.ChangeList
-		chs = append(chs, changes.Change{TypoDomain: swappingDomain, Field: "Status", Before: "Available", After: "Active"})
-		chs = append(chs, changes.Change{TypoDomain: swappingDomain, Field: "ExpiryDate", Before: "08/12/2000", After: "02/10/2008"})
-		chs = append(chs, changes.Change{TypoDomain: missingDomain, Field: "UpdateDate", Before: "08/10/2000", After: "02/10/2009"})
-		chs = append(chs, changes.Change{TypoDomain: "example.com", Field: "CreateDate", Before: "08/04/2000", After: "02/10/2008"})
-		chs = append(chs, changes.Change{TypoDomain: "example.com", Field: "Status", Before: "Inactive", After: "Active"})
-		chs = append(chs, changes.Change{TypoDomain: "xn--yhoo-loa.com", Field: "Status", Before: "Inactive", After: "Alias"})
+		chs = append(chs, changes.Change{TypoDomain: swappingDomain, Field: changes.STATUS, Before: "Available", After: "Active"})
+		chs = append(chs, changes.Change{TypoDomain: "api.example.com", Field: changes.DNS_A, Before: "1.2.3.4", After: "5.6.7.8"})
+		chs = append(chs, changes.Change{TypoDomain: swappingDomain, Field: changes.EXPIRATION_DATE, Before: "08/12/2000", After: "02/10/2008"})
+		chs = append(chs, changes.Change{TypoDomain: missingDomain, Field: changes.UPDATED_DATE, Before: "08/10/2000", After: "02/10/2009"})
+		chs = append(chs, changes.Change{TypoDomain: "example.com", Field: changes.CREATION_DATE, Before: "08/04/2000", After: "02/10/2008"})
+		chs = append(chs, changes.Change{TypoDomain: "example.com", Field: changes.STATUS, Before: "Inactive", After: "Active"})
+		chs = append(chs, changes.Change{TypoDomain: "xn--yhoo-loa.com", Field: changes.STATUS, Before: "Inactive", After: "Alias"})
 
 		td1 := domains.NewTypoDomain(swappingDomain, googleDomain, algorithm)
 		td2 := domains.NewTypoDomain(missingDomain, googleDomain, algorithm)
@@ -30,6 +31,13 @@ func TestEmailChanges(t *testing.T) {
 		td3.Update()
 
 		headersAva, datasAva, headersWhois, datasWhois := chs.ToTables()
+
+		if len(datasAva) < 3 {
+			t.Errorf("expected status/DNS rows in table, got %d", len(datasAva))
+		}
+		if len(datasWhois) < 2 {
+			t.Errorf("expected whois rows in table, got %d", len(datasWhois))
+		}
 
 		hExpiry, dExpiry := domains.TypoList([]domains.TypoDomain{td1, td2, td3}).ToExpiryTable()
 

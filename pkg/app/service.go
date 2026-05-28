@@ -7,11 +7,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/moorada/neferpitool/pkg/log"
+
 	"github.com/moorada/neferpitool/pkg/changes"
 	"github.com/moorada/neferpitool/pkg/configuration"
 	"github.com/moorada/neferpitool/pkg/constants"
 	"github.com/moorada/neferpitool/pkg/db"
+	"github.com/moorada/neferpitool/pkg/discovery"
 	"github.com/moorada/neferpitool/pkg/domains"
+	"github.com/moorada/neferpitool/pkg/events"
 	"github.com/moorada/neferpitool/pkg/generator"
 	"github.com/moorada/neferpitool/pkg/reliableChanges"
 	"github.com/moorada/neferpitool/pkg/scanner"
@@ -38,12 +42,23 @@ func (s *Service) DomainPresence(domainNames []string) map[string]bool {
 	return presence
 }
 
-func (s *Service) ScanTypoDomains(tds domains.TypoList, progress ProgressFn) map[string]error {
+func (s *Service) scanHosts(tds domains.TypoList, apex, phase string, progress ProgressFn) map[string]error {
 	c := make(chan int, len(tds))
 	errsCh := make(chan map[string]error, 1)
 
+	if apex == "" {
+		apex = tds.Apex()
+	}
+
+	opts := scanner.ScanOptions{
+		Apex:          apex,
+		WhoisOnlyApex: true,
+		Concurrency:   configuration.GetConf().SCAN_CONCURRENCY,
+		Phase:         phase,
+	}
+
 	go func() {
-		errsCh <- scanner.UpdateTypoDomains(tds, c)
+		errsCh <- scanner.UpdateHosts(tds, opts, c)
 	}()
 
 	done := 0
@@ -59,18 +74,49 @@ func (s *Service) ScanTypoDomains(tds domains.TypoList, progress ProgressFn) map
 	return <-errsCh
 }
 
+// ScanTypoDomains scans hosts; WHOIS runs only on the apex domain.
+func (s *Service) ScanTypoDomains(tds domains.TypoList, progress ProgressFn) map[string]error {
+	apex := ""
+	if len(tds) > 0 {
+		apex = tds[0].LegitDomain
+	}
+	return s.scanHosts(tds, apex, "scan", progress)
+}
+
+// AddDomainAndTypos registers an apex zone, discovers subdomains, scans hosts, and optionally generates typos.
 func (s *Service) AddDomainAndTypos(domain string, progress ProgressFn) (domains.TypoList, map[string]error, error) {
-	tds := generator.GetUnfilledTypoDomains(domain)
-	errs := s.ScanTypoDomains(tds, progress)
-	db.AddTypoListToDB(tds)
+	return s.AddZone(domain, progress)
+}
+
+func (s *Service) AddZone(domain string, progress ProgressFn) (domains.TypoList, map[string]error, error) {
+	domain = strings.TrimSpace(strings.ToLower(domain))
+	var allErrs map[string]error
 
 	md := domains.NewLegitDomain(domain)
+	db.AddLegitDomainToDB(md)
+
+	hosts := discovery.DiscoverSubdomains(domain)
+	errs := s.scanHosts(hosts, domain, "initial-discovery", progress)
+	allErrs = mergeErrs(allErrs, errs)
+	db.AddTypoListToDB(hosts)
+
 	if err := md.Update(); err != nil {
-		return tds, errs, err
+		return hosts, allErrs, err
+	}
+	db.AddLegitDomainToDB(md)
+
+	var typos domains.TypoList
+	switch configuration.GetConf().TypoMode() {
+	case constants.TypoModeImmediate:
+		typos = generator.GetUnfilledTypoDomains(domain)
+		errs = s.scanHosts(typos, domain, "typo-immediate", progress)
+		allErrs = mergeErrs(allErrs, errs)
+		db.AddTypoListToDB(typos)
+		hosts = append(hosts, typos...)
+	case constants.TypoModeDeferred, constants.TypoModeOff:
 	}
 
-	db.AddLegitDomainToDB(md)
-	return tds, errs, nil
+	return hosts, allErrs, nil
 }
 
 func (s *Service) ImportTypos(domain, path string, progress ProgressFn) (domains.TypoList, map[string]error, error) {
@@ -87,7 +133,7 @@ func (s *Service) ImportTypos(domain, path string, progress ProgressFn) (domains
 		if name == "" {
 			continue
 		}
-		tds = append(tds, domains.NewTypoDomain(name, domain, "imported"))
+		tds = append(tds, domains.NewHost(name, domain, "imported", constants.SourceImported))
 	}
 
 	if err := sc.Err(); err != nil {
@@ -98,9 +144,59 @@ func (s *Service) ImportTypos(domain, path string, progress ProgressFn) (domains
 		return nil, nil, errors.New("empty file")
 	}
 
-	errs := s.ScanTypoDomains(tds, progress)
+	errs := s.scanHosts(tds, domain, "import", progress)
 	db.AddTypoListToDB(tds)
 	return tds, errs, nil
+}
+
+// RefreshSubdomains discovers new CT/wordlist hosts and returns only names not yet in the DB.
+func (s *Service) RefreshSubdomains(apex string) (domains.TypoList, map[string]error, error) {
+	existing := db.GetTypoDomainListFromDB(apex).ToMap()
+	discovered := discovery.DiscoverSubdomains(apex)
+
+	var newHosts domains.TypoList
+	for _, h := range discovered {
+		if h.Source == constants.SourceTypo {
+			continue
+		}
+		if _, ok := existing[h.Name]; !ok {
+			newHosts = append(newHosts, h)
+		}
+	}
+	if len(newHosts) == 0 {
+		return nil, nil, nil
+	}
+
+	errs := s.scanHosts(newHosts, apex, "subdomain-refresh", nil)
+	db.AddTypoListToDB(newHosts)
+	for _, h := range newHosts {
+		events.EmitHostDiscovered(apex, h.Name, h.Source, h.StatusToString())
+	}
+	return newHosts, errs, nil
+}
+
+// ProcessDeferredTypos generates and scans typo-squat domains for zones that do not have them yet.
+func (s *Service) ProcessDeferredTypos(progress ProgressFn) map[string]error {
+	if configuration.GetConf().TypoMode() != constants.TypoModeDeferred {
+		return nil
+	}
+
+	var allErrs map[string]error
+	for _, d := range db.GetMainDomainListFromDB() {
+		if db.HasTypoHostsForZone(d.Name) {
+			continue
+		}
+		typos := generator.GetUnfilledTypoDomains(d.Name)
+		if len(typos) == 0 {
+			continue
+		}
+		log.Info("Zone %s: generating %d deferred typo hosts...", d.Name, len(typos))
+		errs := s.scanHosts(typos, d.Name, "deferred-typos", progress)
+		db.AddTypoListToDB(typos)
+		EmitTypoDiscoveredEvents(d.Name, typos)
+		allErrs = mergeErrs(allErrs, errs)
+	}
+	return allErrs
 }
 
 func (s *Service) GetTypoDomainsInExpiration() domains.TypoList {
@@ -115,18 +211,49 @@ func (s *Service) GetTypoDomainsInExpiration() domains.TypoList {
 	return total
 }
 
+// IterateCheckAssetChanges runs full DNS/WHOIS (apex) change detection for zone assets (not typos).
+func (s *Service) IterateCheckAssetChanges(assets domains.TypoList, progress ProgressFn) (tdsReliable []domains.TypoDomain, changesReliable []changes.Change, scanErrs map[string]error) {
+	if len(assets) == 0 {
+		return nil, nil, nil
+	}
+	apex := assets.Apex()
+	log.Info("Zone %s: asset DNS change check (%d hosts)...", apex, len(assets))
+	return s.iterateCheckGetChangesInternal(assets, apex, progress)
+}
+
 func (s *Service) IterateCheckGetChanges(tds domains.TypoList, progress ProgressFn) (tdsReliable []domains.TypoDomain, changesReliable []changes.Change, scanErrs map[string]error) {
+	apex := tds.Apex()
+	return s.iterateCheckGetChangesInternal(tds, apex, progress)
+}
+
+func (s *Service) iterateCheckGetChangesInternal(tds domains.TypoList, apex string, progress ProgressFn) (tdsReliable []domains.TypoDomain, changesReliable []changes.Change, scanErrs map[string]error) {
 	tdsNew := tds.GetUnfilledCopy()
-	scanErrs = s.ScanTypoDomains(tdsNew, progress)
+	scanErrs = s.scanHosts(tdsNew, apex, "change-check", progress)
 
 	tdsOldCh, tdsNewCh, chs := changes.MakeChangeList(tds, tdsNew)
-	for i := 0; i < 2 && len(tdsOldCh) > 0; i++ {
+	if len(tdsOldCh) > 0 {
 		time.Sleep(time.Duration(configuration.GetConf().CHECKRELIABILITYTIME) * time.Millisecond)
-		scanErrs = mergeErrs(scanErrs, s.ScanTypoDomains(tdsNewCh, progress))
+		scanErrs = mergeErrs(scanErrs, s.scanHosts(tdsNewCh, apex, "change-verify", progress))
 
 		tdsOldChNext, tdsNewChNext, chsNext := changes.MakeChangeList(tdsOldCh, tdsNewCh)
 		tdsReliable, changesReliable = chsNext.FilterReliableWithPrev(chs, tdsNewCh, tdsNewChNext)
-		tdsOldCh, tdsNewCh, chs = tdsOldChNext, tdsReliable, changesReliable
+		_ = tdsOldChNext
+	} else {
+		tdsReliable = nil
+		changesReliable = nil
+	}
+
+	for _, c := range changesReliable {
+		if len(c.Field) >= 4 && c.Field[:4] == "DNS " {
+			events.Emit(events.DNSChanged, map[string]string{
+				"zone":       apex,
+				"host.name":  c.TypoDomain,
+				"field":      c.Field,
+				"before":     c.Before,
+				"after":      c.After,
+				"change.type": "dns",
+			})
+		}
 	}
 
 	return tdsReliable, changesReliable, scanErrs

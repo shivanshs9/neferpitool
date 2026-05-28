@@ -16,42 +16,42 @@ func TestCheckReliabilityWithPrev(t *testing.T) {
 		TypoDomain: missingDomain,
 		Field:      changes.STATUS,
 		Before:     "Available",
-		After:      "Registered",
+		After:      "Inactive",
 	}
 	tdcs1 := changes.ChangeList{change}
 
 	td2 := domains.NewTypoDomain(missingDomain, googleDomain, algorithm)
-	td1.Status = constants.INACTIVE
+	td2.Status = constants.INACTIVE
 	tds2 := domains.TypoList{td2}
 	change2 := changes.Change{
 		TypoDomain: missingDomain,
 		Field:      changes.STATUS,
 		Before:     "Available",
-		After:      "Registered",
+		After:      "Inactive",
 	}
 	tdcs2 := changes.ChangeList{change2}
 
 	td3 := domains.NewTypoDomain(missingDomain, googleDomain, algorithm)
-	td1.Status = constants.AVAILABLE
+	td3.Status = constants.AVAILABLE
 	tds3 := domains.TypoList{td3}
 
 	change3 := changes.Change{
 		TypoDomain: missingDomain,
 		Field:      changes.STATUS,
-		Before:     "Registered",
+		Before:     "Inactive",
 		After:      "Available",
 	}
 
 	tdcs3 := changes.ChangeList{change3}
 
 	tdsChecked, changesChecked := tdcs1.FilterReliableWithPrev(tdcs2, tds1, tds2)
-	if len(tdsChecked) != 1 && len(changesChecked) != 1 {
-		t.Errorf("Expected that CheckReliability return the changes because are Reliability but it doesn't work")
+	if len(tdsChecked) != 1 || len(changesChecked) != 1 {
+		t.Errorf("expected 1 reliable change, got tds=%d changes=%d", len(tdsChecked), len(changesChecked))
 	}
 
 	tdsChecked, changesChecked = tdcs1.FilterReliableWithPrev(tdcs3, tds1, tds3)
-	if len(tdsChecked) != 0 && len(changesChecked) != 0 {
-		t.Errorf("Expected that CheckReliability return 0 changes because aren't Reliability but it doesn't work")
+	if len(tdsChecked) != 0 || len(changesChecked) != 0 {
+		t.Errorf("expected 0 reliable changes, got tds=%d changes=%d", len(tdsChecked), len(changesChecked))
 	}
 
 }

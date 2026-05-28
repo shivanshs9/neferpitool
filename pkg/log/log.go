@@ -10,19 +10,36 @@ import (
 var pathDir = "logs"
 var pathFile = ""
 
-func ActiveConsoleLog() (err error) {
+func init() {
+	ll.LevelNames[ll.DEBUG] = "DEBUG"
+	ll.LevelNames[ll.INFO] = "INFO"
+	ll.LevelNames[ll.IMPORTANT] = "INFO"
+	ll.LevelNames[ll.WARNING] = "WARN"
+	ll.LevelNames[ll.ERROR] = "ERROR"
+	ll.LevelNames[ll.FATAL] = "FATAL"
+}
 
+// ActiveConsoleLog configures stdout logging. When plain is true, ANSI colors are omitted.
+func ActiveConsoleLog(plain bool) (err error) {
 	config := ll.FormatConfigBasic
-	config.Format = "{time} {level:color}{level:name}{reset} {message}"
-	err = ll.AddOutput("", ll.INFO, config, false)
-	if err != nil {
-		return err
+	if plain {
+		config.Format = "{time} {level:name} {message}"
+		err = ll.AddOutput("", ll.INFO, config, true)
+	} else {
+		config.Format = "{time} {level:color}{level:name}{reset} {message}"
+		err = ll.AddOutput("", ll.INFO, config, false)
 	}
-	return nil
+	return err
 }
 
 func RemoveConsoleLog() {
 	ll.RemoveOutput("")
+}
+
+// ReconfigureConsole replaces stdout logging (e.g. after config is loaded).
+func ReconfigureConsole(plain bool) error {
+	RemoveConsoleLog()
+	return ActiveConsoleLog(plain)
 }
 
 func RemoveDebugLog() {
@@ -37,12 +54,9 @@ func ActiveDebugLog() (err error) {
 	}
 
 	config := ll.FormatConfigBasic
-	config.Format = "{datetime} {level:color}{level:name}{reset} {message}"
+	config.Format = "{datetime} {level:name} {message}"
 	err = ll.AddOutput(pathFile, ll.DEBUG, config, true)
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
 func Close() {
@@ -55,6 +69,7 @@ func Debug(format string, args ...interface{}) {
 
 func Info(format string, args ...interface{}) {
 	ll.Info(format, args...)
+	syncStdout()
 }
 
 func Important(format string, args ...interface{}) {
@@ -63,10 +78,16 @@ func Important(format string, args ...interface{}) {
 
 func Warning(format string, args ...interface{}) {
 	ll.Warning(format, args...)
+	syncStdout()
 }
 
 func Error(format string, args ...interface{}) {
 	ll.Error(format, args...)
+	syncStdout()
+}
+
+func syncStdout() {
+	_ = os.Stdout.Sync()
 }
 
 func Fatal(format string, args ...interface{}) {

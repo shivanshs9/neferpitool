@@ -30,7 +30,7 @@ func SingleDomainMode(domain string) {
 		case "Look at his typo-domains":
 			console.PrintTableTypoDomains(db.GetTypoDomainListFromDB(domain))
 		case "Check for changes":
-			checkChanges(db.GetTypoDomainListFromDB(domain))
+			checkZoneChanges(db.GetTypoDomainListFromDB(domain))
 		case "Remove":
 			db.RemoveLegitDomainFromDB(domain)
 		}

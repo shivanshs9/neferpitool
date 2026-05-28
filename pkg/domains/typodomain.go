@@ -13,11 +13,26 @@ type TypoDomain struct {
 	Domain
 	Algorithm   string
 	LegitDomain string
+	Source      string
 }
 
 /*Make a new typo-DomainName*/
 func NewTypoDomain(nameTypoDomain string, mainDomain string, algorithm string) TypoDomain {
-	return TypoDomain{Domain: Domain{Name: nameTypoDomain, Status: constants.UNKNOWN, Ignore: false}, LegitDomain: mainDomain, Algorithm: algorithm}
+	return NewHost(nameTypoDomain, mainDomain, algorithm, constants.SourceTypo)
+}
+
+// NewHost creates a monitored name under an apex zone.
+func NewHost(name, zone, algorithm, source string) TypoDomain {
+	return TypoDomain{
+		Domain:      Domain{Name: name, Status: constants.UNKNOWN, Ignore: false},
+		LegitDomain: zone,
+		Algorithm:   algorithm,
+		Source:      source,
+	}
+}
+
+func (td TypoDomain) IsApex() bool {
+	return td.Name == td.LegitDomain
 }
 
 /*Check if the typodomain is changed and return new typodomain updated*/

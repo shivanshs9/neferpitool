@@ -31,7 +31,7 @@ func SingleTdMode(typodomain string) {
 		case "Look at his history":
 			console.PrintTableTypoDomains(db.GetTypoDomainHistoryFromDB(typodomain))
 		case "Check changes":
-			checkChanges([]domains.TypoDomain{db.GetTypoDomainFromDB(typodomain)})
+			checkZoneChanges([]domains.TypoDomain{db.GetTypoDomainFromDB(typodomain)})
 		case "Delete":
 			db.RemoveTypoDomainFromDB(typodomain)
 		}

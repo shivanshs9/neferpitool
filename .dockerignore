@@ -1,0 +1,11 @@
+.git
+.gitignore
+**/*.db
+logs/
+dns/
+test/
+*.md
+!README.md
+.idea
+cmd/cmd
+**/database.db

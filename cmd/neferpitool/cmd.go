@@ -2,8 +2,10 @@ package cmd
 
 //cmdroot
 import (
+	"context"
 	"flag"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -12,12 +14,17 @@ import (
 	"github.com/moorada/neferpitool/pkg/app"
 
 	"github.com/moorada/neferpitool/pkg/configuration"
+	"github.com/moorada/neferpitool/pkg/constants"
 
 	"github.com/moorada/neferpitool/pkg/console"
 	"github.com/moorada/neferpitool/pkg/db"
 	"github.com/moorada/neferpitool/pkg/domains"
 	"github.com/moorada/neferpitool/pkg/log"
+	"github.com/moorada/neferpitool/pkg/telemetry"
+	"github.com/moorada/neferpitool/pkg/terminal"
 )
+
+var otelShutdown func(context.Context) error = func(context.Context) error { return nil }
 
 var totaltd int
 var monitorService = app.NewService()
@@ -25,22 +32,6 @@ var monitorService = app.NewService()
 const PathConfigFolder = "./config"
 
 func CmdRoot() {
-
-	//init log
-	if err := log.ActiveConsoleLog(); err != nil {
-		panic(err)
-	} else {
-		defer log.Close()
-	}
-
-	err := os.MkdirAll(PathConfigFolder, os.ModePerm)
-	if err != nil {
-		log.Error("%s", err.Error())
-	}
-
-	//init db
-	db.InitDB("config/database")
-	defer db.CloseDB()
 
 	// init flags
 	logs := flag.Bool("logs", false, "Avtive logs on file")
@@ -52,6 +43,31 @@ func CmdRoot() {
 	pathImportTds := flag.String("p", "", "Import Typos from file - path of the file")
 
 	flag.Parse()
+
+	// Log must be ready before configuration.GetConf() (initConf uses log.Debug).
+	if err := log.ActiveConsoleLog(configuration.InitialPlainLogs()); err != nil {
+		panic(err)
+	}
+	defer log.Close()
+
+	ctx := context.Background()
+	if shutdown, err := telemetry.Init(ctx); err != nil {
+		log.Warning("OTEL init failed (traces disabled): %s", err.Error())
+	} else {
+		otelShutdown = shutdown
+		if telemetry.Enabled() {
+			log.Info("OTEL trace export enabled (service: check OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES)")
+		}
+	}
+	defer func() { _ = otelShutdown(context.Background()) }()
+
+	err := os.MkdirAll(PathConfigFolder, os.ModePerm)
+	if err != nil {
+		log.Error("%s", err.Error())
+	}
+
+	db.InitDB("config/database")
+	defer db.CloseDB()
 
 	if *logs {
 		if err := log.ActiveDebugLog(); err != nil {
@@ -67,6 +83,8 @@ func CmdRoot() {
 	logDegubInfo()
 
 	if *bg {
+		log.Info("Starting background monitoring (args: %v)", flag.Args())
+		ensureZonesRegistered(flag.Args())
 		background()
 		return
 	}
@@ -167,19 +185,52 @@ func UpdateTypoDomainsWithProgressBar(tds domains.TypoList) map[string]error {
 
 func addDomainAndHisTypos(domain string) (domains.TypoList, map[string]error, error) {
 
-	s := spinner.New(spinner.CharSets[26], 200*time.Millisecond)
-	s.Prefix = "Generating typodomains "
-	s.Start()
-	tds, errs, err := monitorService.AddDomainAndTypos(domain, nil)
-	s.Stop()
+	var tds domains.TypoList
+	var errs map[string]error
+	var err error
+	if terminal.UseInteractiveUI(configuration.GetConf().LOG_PLAIN) {
+		s := spinner.New(spinner.CharSets[26], 200*time.Millisecond)
+		s.Prefix = "Discovering hosts and scanning "
+		s.Start()
+		tds, errs, err = monitorService.AddDomainAndTypos(domain, nil)
+		s.Stop()
+	} else {
+		log.Info("Discovering hosts and scanning zone %s...", domain)
+		tds, errs, err = monitorService.AddDomainAndTypos(domain, nil)
+	}
 
 	if err != nil {
 		return tds, errs, err
 	}
 
-	log.Info("Typodomains added to database")
+	log.Info("Zone %s added (%d monitored hosts)", domain, len(tds))
+	if configuration.GetConf().TypoMode() == constants.TypoModeDeferred {
+		log.Info("Typo-domain generation queued for background (TYPO_MODE=deferred)")
+	}
 	return tds, errs, nil
 
+}
+
+// ensureZonesRegistered adds apex zones from CLI args when they are not already in the DB.
+func ensureZonesRegistered(args []string) {
+	for _, raw := range args {
+		domain := strings.TrimSpace(strings.ToLower(raw))
+		if domain == "" {
+			continue
+		}
+		if monitorService.DomainPresence([]string{domain})[domain] {
+			log.Info("Zone %s already registered", domain)
+			continue
+		}
+		log.Info("Registering zone %s...", domain)
+		_, errs, err := monitorService.AddDomainAndTypos(domain, nil)
+		if err != nil {
+			log.Error("Zone %s: %s", domain, err.Error())
+		}
+		if len(errs) > 0 {
+			console.PrintTableErrs(errs)
+		}
+	}
 }
 
 func importTypos(domain string, path string) {

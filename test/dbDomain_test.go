@@ -11,7 +11,7 @@ import (
 
 func TestAddDomainToDBAndGetDomainFromDBAndRemoveDomainFromDB(t *testing.T) {
 
-	log.ActiveConsoleLog()
+	log.ActiveConsoleLog(true)
 	os.Remove(dbFile)
 
 	db.InitDB(dbName)

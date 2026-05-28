@@ -66,7 +66,7 @@ Menage one specific typodomain with the interactive prompt
 
 ```
   -bg
-    	Active monitoring in background
+    	Active monitoring in background (optional apex domains: ./cmd -bg example.com other.com registers missing zones then monitors all zones in DB)
   -it string -p string
     	Import Typos from file : -main domain -path of the file
   -logs
@@ -84,6 +84,17 @@ Menage one specific typodomain with the interactive prompt
 ### Configuration file fields
 
 ```
+    "DISCOVERY_CT": Query Certificate Transparency (crt.sh) for subdomains
+    "DISCOVERY_WORDLIST": Brute-force subdomains from SUBDOMAIN_WORDLIST_PATH (DNS probe; works with wildcard certs)
+    "SUBDOMAIN_WORDLIST_PATH": Path to subdomain prefix wordlist (one label per line)
+    "DISCOVERY_REFRESH": Re-run subdomain discovery each background cycle
+    "TYPO_MODE": "off" | "immediate" | "deferred" — typosquat monitoring (deferred runs after DNS monitoring in -bg)
+    "SCAN_CONCURRENCY": Parallel DNS scan workers
+    "MONITOR_ASSET_DNS_CHANGES": DNS/WHOIS change checks for apex + subdomains (not typos)
+    "MONITOR_TYPO_WATCHLIST": Lighter typo checks (registration status; optional full DNS via TYPO_FULL_DNS_CHANGE_CHECK)
+    "TYPO_FULL_DNS_CHANGE_CHECK": When false, typos only alert on status/registration changes (faster)
+    "EVENTS_ENABLED": Emit JSON event lines for SigNoz (neferpitool.typo.discovered, neferpitool.typo.activated, ...)
+    "LOG_PLAIN": Force plain logs (no spinner/progress bars); auto-detected when stdout is not a TTY
     "TYPOSALGHORITM": List of typosquatting alghoritms
     "EXPIRATIONTIME": Number of days remaining until the domain expires for which to be notified by email
     "MAXATTEMPTSWHOIS": number of attempted WHOIS requests if there are failures
@@ -137,12 +148,14 @@ ACTIVE: if A, AAAA or MX records are present;
   ALL   Apply all typosquatting algorithms
 ```
 
-## TO DO Run in a docker container 
-Add to monitoring or manage a domain
-```
-docker build -t neferpitool .
+## Docker
 
+```bash
+docker build -t neferpitool:latest .
+docker run --rm -v neferpitool-config:/app/config neferpitool:latest -bg example.com
 ```
+
+See [docs/docker.md](docs/docker.md) for configuration, **OTEL / SigNoz** environment variables, and Kubernetes notes.
 
 ## DNS for testing
 
