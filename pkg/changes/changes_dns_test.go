@@ -25,6 +25,15 @@ func TestMakeDNSChanges_misplacedLegacySlot(t *testing.T) {
 	}
 }
 
+func TestMakeDNSChanges_ignoresSOASerialOnly(t *testing.T) {
+	oldR := dns.Dns{SOA: "avantisfi.com.\t30\tIN\tSOA\tkyrie.ns.cloudflare.com. dns.cloudflare.com. 2406305687 10000 2400 604800 1800"}
+	newR := dns.Dns{SOA: "avantisfi.com.\t30\tIN\tSOA\tkyrie.ns.cloudflare.com. dns.cloudflare.com. 2406382306 10000 2400 604800 1800"}
+	cl := makeDNSChanges("avantisfi.com", oldR, newR)
+	if len(cl) != 0 {
+		t.Fatalf("expected no SOA change when only serial differs, got %+v", cl)
+	}
+}
+
 func TestMakeDNSChanges_NSOrderStable(t *testing.T) {
 	ns1 := "example.com.\t30\tIN\tNS\tns1.cloudflare.com."
 	ns2 := "example.com.\t30\tIN\tNS\tns2.cloudflare.com."

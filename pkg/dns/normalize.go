@@ -41,8 +41,9 @@ func canonicalRdata(rr mdns.RR) string {
 	case *mdns.NS:
 		return "NS:" + mdns.Fqdn(x.Ns)
 	case *mdns.SOA:
-		return fmt.Sprintf("SOA:%s:%s:%d:%d:%d:%d:%d",
-			mdns.Fqdn(x.Ns), mdns.Fqdn(x.Mbox), x.Serial, x.Refresh, x.Retry, x.Expire, x.Minttl)
+		// Serial is omitted: authoritative zones bump it on any edit (e.g. Cloudflare).
+		return fmt.Sprintf("SOA:%s:%s:%d:%d:%d:%d",
+			mdns.Fqdn(x.Ns), mdns.Fqdn(x.Mbox), x.Refresh, x.Retry, x.Expire, x.Minttl)
 	default:
 		return collapseWS(rr.String())
 	}
